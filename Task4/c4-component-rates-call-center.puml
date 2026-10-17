@@ -1,0 +1,46 @@
+@startuml c4-component-rates-call-center
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+title Передача ставок в кол-центр - диаграмма компонентов
+
+Person(back_office, "Менеджер бэк-офиса депозитов")
+Person(cc_operator, "Оператор кол-центра банка")
+System_Ext(partner_cc, "Система партнёрского кол-центра", "Внешняя система партнёра")
+
+ContainerDb(abs_db, "БД АБС", "Oracle", "Справочник ставок по депозитам")
+Container(abs_client, "Клиент АБС", "Delphi", "Форма ведения ставок")
+ContainerQueue(kafka, "Kafka", "Apache Kafka", "Топик ставок")
+Container(sftp, "SFTP-сервер банка", "SFTP, DMZ", "Папка для партнёра")
+
+Container_Boundary(adapter, "Интеграционный адаптер АБС (Java Spring Boot)") {
+  Component(rates_publisher, "Публикация ставок", "Spring Boot", "Читает изменения ставок в АБС и публикует их в Kafka")
+  Component(rates_export, "Выгрузка ставок в файл", "Spring Boot", "Читает ставки из Kafka, формирует CSV со всеми актуальными ставками")
+  Component(sftp_sender, "Отправка файла", "Spring Boot, SFTP-клиент", "Выкладывает файл на SFTP, повторяет при ошибке")
+  Component(scheduler, "Планировщик", "Spring Scheduler", "Раз в день формирует полный файл, даже если ставки не менялись")
+}
+
+Container_Boundary(cc, "Система кол-центра (React.js, Java Spring Boot, PostgreSQL)") {
+  Component(cc_consumer, "Приём ставок", "Spring Boot", "Читает ставки из Kafka")
+  ComponentDb(cc_rates_db, "Справочник ставок", "PostgreSQL", "Копия актуальных ставок")
+  Component(cc_rates_api, "API ставок", "Spring Boot, REST", "Отдаёт ставки интерфейсу оператора")
+  Component(cc_rates_ui, "Виджет ставок", "React.js", "Список депозитов и ставок в рабочем месте оператора")
+}
+
+Rel(back_office, abs_client, "Меняет ставки")
+Rel(abs_client, abs_db, "Сохраняет ставки", "SQL")
+Rel(rates_publisher, abs_db, "Читает изменения ставок", "SQL")
+Rel(rates_publisher, kafka, "Публикует ставки", "Kafka")
+
+Rel(kafka, rates_export, "Ставки", "Kafka")
+Rel(scheduler, rates_export, "Запуск ежедневной выгрузки")
+Rel(rates_export, sftp_sender, "Готовый файл")
+Rel(sftp_sender, sftp, "Выкладывает файл", "SFTP")
+Rel(partner_cc, sftp, "Забирает файл по расписанию", "SFTP")
+
+Rel(kafka, cc_consumer, "Ставки", "Kafka")
+Rel(cc_consumer, cc_rates_db, "Сохраняет ставки", "SQL")
+Rel(cc_rates_api, cc_rates_db, "Читает ставки", "SQL")
+Rel(cc_rates_ui, cc_rates_api, "Запрос ставок", "REST")
+Rel(cc_operator, cc_rates_ui, "Смотрит ставки")
+
+@enduml
