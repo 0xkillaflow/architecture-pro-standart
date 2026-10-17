@@ -1,0 +1,63 @@
+@startuml c4-component-credit-online
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+title Заявка на кредит онлайн - диаграмма компонентов
+
+Person(credit_officer, "Сотрудник управления кредитования")
+
+Container(ib_web, "Веб-приложение интернет-банка", "ASP.NET MVC 4.5", "Страницы кредитов")
+Container_Ext(site, "Сайт", "PHP, React.js")
+Container(notify_svc, "Сервис уведомлений", ".NET 8", "Из MVP. СМС-коды и СМС о статусе заявки")
+ContainerQueue(kafka, "Kafka", "Apache Kafka", "Топики: кредитные заявки, статусы заявок, предодобренные предложения")
+Container(scoring, "Система кредитного скоринга", "Python, Flask, PostgreSQL", "Скоринг, ночной расчёт предодобренных предложений")
+Container(abs_adapter, "Адаптер АБС", "Java Spring Boot", "Из MVP. Передаёт заявки с сайта в АБС")
+
+Container_Boundary(credit_svc, "Кредитный сервис интернет-банка (.NET 8)") {
+  Component(credit_api, "API кредитов", "ASP.NET Core, REST", "Условия кредитов, предложения клиента, приём заявок для сайта и интернет-банка")
+  Component(conditions_sync, "Загрузка условий", "Фоновая задача", "Периодически забирает условия кредитов из Кредитного конвейера")
+  Component(offers, "Предодобренные предложения", "Kafka consumer", "Сохраняет предложения, рассчитанные ночью")
+  Component(prescoring, "Предварительное решение", "REST-клиент", "Запрашивает скоринг нового клиента по данным БКИ")
+  Component(applications, "Заявки", "Kafka producer / consumer", "Отправляет заявки в Kafka, получает статусы")
+  ComponentDb(credit_db, "БД кредитного сервиса", "MS SQL", "Условия, предложения, заявки и статусы")
+}
+
+Container_Boundary(pipeline, "Кредитный конвейер (Camunda, Java, Oracle)") {
+  Component(conditions_api, "API условий кредитов", "Java, REST", "Отдаёт актуальные условия кредитов")
+  Component(intake, "Приём онлайн-заявок", "Java, Kafka consumer", "Запускает процесс по заявке сразу после получения")
+  Component(fast_process, "Процесс быстрой заявки", "BPMN", "Для предодобренных предложений: упрощённый скоринг, рассмотрение в тот же день")
+  Component(regular_process, "Процесс обычной заявки", "BPMN", "Существующий процесс рассмотрения")
+  Component(status_publisher, "Публикация статусов", "Java, Kafka producer", "Отправляет изменения статуса заявки в Kafka")
+  ComponentDb(pipeline_db, "БД конвейера", "Oracle", "Заявки, условия кредитов")
+}
+
+Rel(ib_web, credit_api, "Кредиты, предложения, заявка", "REST")
+Rel(site, credit_api, "Условия, заявка, паспортные данные", "REST/HTTPS")
+Rel(credit_api, credit_db, "Чтение / запись", "SQL")
+Rel(credit_api, notify_svc, "Отправить / проверить СМС-код", "REST")
+Rel(credit_api, prescoring, "Нужно предварительное решение")
+Rel(prescoring, scoring, "Скоринг нового клиента", "REST")
+Rel(credit_api, applications, "Новая заявка")
+Rel(applications, kafka, "Заявки / статусы", "Kafka")
+Rel(applications, credit_db, "Статусы заявок", "SQL")
+Rel(conditions_sync, conditions_api, "Условия кредитов", "REST")
+Rel(conditions_sync, credit_db, "Сохраняет условия", "SQL")
+Rel(scoring, kafka, "Предодобренные предложения (ночью)", "Kafka")
+Rel(kafka, offers, "Предодобренные предложения", "Kafka")
+Rel(offers, credit_db, "Сохраняет предложения", "SQL")
+
+Rel(kafka, intake, "Заявки", "Kafka")
+Rel(intake, fast_process, "Заявка по предодобренному предложению")
+Rel(intake, regular_process, "Остальные заявки")
+Rel(fast_process, scoring, "Упрощённый скоринг", "REST")
+Rel(credit_officer, fast_process, "Рассматривает заявку")
+Rel(credit_officer, regular_process, "Рассматривает заявку")
+Rel(fast_process, status_publisher, "Смена статуса")
+Rel(regular_process, status_publisher, "Смена статуса")
+Rel(status_publisher, kafka, "Статусы заявок", "Kafka")
+Rel(conditions_api, pipeline_db, "Чтение", "SQL")
+Rel(intake, pipeline_db, "Сохраняет заявку", "SQL")
+
+Rel(kafka, notify_svc, "Статусы заявок", "Kafka")
+Rel(kafka, abs_adapter, "Заявки с сайта", "Kafka")
+
+@enduml

@@ -1,0 +1,52 @@
+@startuml c4-container-deposit-mvp
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+title Открытие депозита (MVP) - диаграмма контейнеров (интернет-банк и АБС)
+
+Person(client, "Клиент")
+Person(back_office, "Менеджер бэк-офиса депозитов")
+Person(branch, "Сотрудник отделения")
+Person(cc_operator, "Оператор кол-центра")
+
+System_Ext(site, "Сайт", "PHP, React.js")
+System_Ext(cc, "Система кол-центра", "React.js, Java Spring Boot, PostgreSQL")
+System_Ext(sms_gw, "СМС-шлюз", "Отправка СМС через телеком-оператора")
+
+ContainerQueue(kafka, "Kafka", "Apache Kafka", "Топики: заявки с сайта, заявки на депозит, статусы заявок, ставки")
+
+System_Boundary(ib, "Интернет-банк") {
+  Container(ib_web, "Веб-приложение интернет-банка", "ASP.NET MVC 4.5 (монолит)", "Существующий интерфейс. Новые страницы депозитов")
+  Container(deposit_svc, "Сервис депозитов", ".NET 8", "Список депозитов и ставок, приём заявок, статусы заявок")
+  ContainerDb(deposit_db, "БД депозитов", "MS SQL", "Копия ставок, заявки и их статусы")
+  Container(notify_svc, "Сервис уведомлений", ".NET 8", "СМС-коды подтверждения, СМС о статусе заявки")
+  ContainerDb(notify_db, "БД уведомлений", "MS SQL", "СМС-коды, история отправки")
+}
+
+System_Boundary(abs, "АБС") {
+  Container(abs_client, "Клиент АБС", "Delphi", "Рабочее место сотрудников. Новые формы: ставки, заявки на депозит")
+  ContainerDb(abs_db, "БД АБС", "Oracle, PL/SQL", "Счета, депозиты. Новое: справочник ставок, заявки на депозит")
+  Container(abs_adapter, "Интеграционный адаптер АБС", "Java Spring Boot", "Читает заявки из Kafka и записывает в АБС порциями, публикует ставки и статусы")
+}
+
+Rel(client, ib_web, "Смотрит ставки, подаёт заявку, вводит СМС-код", "HTTPS")
+Rel(ib_web, deposit_svc, "Ставки, заявки, статусы", "REST")
+Rel(deposit_svc, deposit_db, "Чтение / запись", "SQL")
+Rel(deposit_svc, notify_svc, "Отправить / проверить СМС-код", "REST")
+Rel(deposit_svc, kafka, "Публикует заявки / читает ставки и статусы", "Kafka")
+Rel(notify_svc, kafka, "Читает статусы заявок", "Kafka")
+Rel(notify_svc, notify_db, "Чтение / запись", "SQL")
+Rel(notify_svc, sms_gw, "Отправка СМС", "HTTPS")
+
+Rel(site, deposit_svc, "Список депозитов и ставки", "REST/HTTPS")
+Rel(site, kafka, "Публикует заявку с сайта", "Kafka")
+Rel(kafka, cc, "Заявка с сайта", "Kafka")
+Rel(cc_operator, cc, "Работает с заявкой")
+Rel(cc, abs_db, "Заявка и особые условия (текущая интеграция)")
+
+Rel(abs_adapter, kafka, "Читает заявки / публикует ставки и статусы", "Kafka")
+Rel(abs_adapter, abs_db, "Запись заявок, чтение ставок и статусов", "SQL, PL/SQL")
+Rel(back_office, abs_client, "Ведёт ставки, подтверждает ставку, открывает депозит")
+Rel(branch, abs_client, "Находит заявку, открывает депозит")
+Rel(abs_client, abs_db, "Чтение / запись", "SQL")
+
+@enduml

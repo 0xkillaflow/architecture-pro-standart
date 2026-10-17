@@ -1,0 +1,38 @@
+@startuml c4-context-credit-online
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+title Заявка на кредит онлайн - диаграмма контекста
+
+Person(client, "Клиент", "Новый или существующий клиент банка")
+Person(credit_officer, "Сотрудник управления кредитования", "Рассматривает заявки")
+Person(branch, "Сотрудник отделения", "Идентифицирует клиента, продолжает заявку")
+
+System(site, "Сайт", "Предложение по кредиту, заявка от нового клиента")
+System(ib, "Интернет-банк", "Кредиты, предодобренные предложения, заявка с СМС-подтверждением")
+System(kafka, "Kafka", "Заявки, статусы, предодобренные предложения")
+System(pipeline, "Кредитный конвейер", "Camunda, Oracle. Условия кредитов, обработка заявок")
+System(scoring, "Система кредитного скоринга", "Python, Flask, PostgreSQL")
+System(abs, "АБС", "Заявки в отделении, выдача кредита")
+System_Ext(bki, "Бюро кредитных историй", "REST API")
+System_Ext(sms_gw, "СМС-шлюз", "Отправка СМС через телеком-оператора")
+
+Rel(client, site, "Смотрит предложение, подаёт заявку", "HTTPS")
+Rel(client, ib, "Смотрит предложения, подаёт заявку, вводит СМС-код", "HTTPS")
+Rel(client, branch, "Приходит в отделение")
+
+Rel(site, ib, "Условия кредитов, заявка, предварительное решение", "REST/HTTPS")
+Rel(ib, pipeline, "Условия кредитов", "REST")
+Rel(ib, scoring, "Предварительное решение для нового клиента", "REST")
+Rel(ib, kafka, "Заявки / получает статусы и предодобренные предложения", "Kafka")
+Rel(pipeline, kafka, "Получает заявки / публикует статусы", "Kafka")
+Rel(scoring, kafka, "Ночью публикует предодобренные предложения", "Kafka")
+Rel(pipeline, scoring, "Скоринг по заявке", "REST")
+Rel(scoring, bki, "Кредитная история", "REST")
+Rel(abs, kafka, "Получает заявки с сайта", "Kafka")
+Rel(abs, pipeline, "Заявки из отделения и выдача кредита (раз в сутки)")
+
+Rel(credit_officer, pipeline, "Рассматривает заявку, принимает решение")
+Rel(branch, abs, "Находит заявку или создаёт новую")
+Rel(ib, sms_gw, "СМС-коды и СМС о статусе заявки")
+
+@enduml
